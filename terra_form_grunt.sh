@@ -30,24 +30,64 @@ print_error() {
 
 # Detect OS
 detect_os() {
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        if [ -f /etc/os-release ]; then
-            . /etc/os-release
-            OS=$ID
-            OS_VERSION=$VERSION_ID
-        elif [ -f /etc/redhat-release ]; then
-            OS="rhel"
-        else
-            OS="unknown"
-        fi
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
+    if [ "$(uname)" = "Darwin" ]; then
         OS="macos"
-    else
-        OS="unknown"
+        print_info "Detected macOS"
+        return
     fi
-    
-    print_info "Detected OS: $OS"
+
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+
+        case "$ID" in
+            ubuntu)
+                OS="ubuntu"
+                print_info "Detected Ubuntu $VERSION_ID"
+                ;;
+            debian)
+                OS="debian"
+                print_info "Detected Debian $VERSION_ID"
+                ;;
+            rhel|centos|fedora|rocky|almalinux)
+                OS="rhel"
+                print_info "Detected RHEL-based system: $ID $VERSION_ID"
+                ;;
+            opensuse*|sles)
+                OS="suse"
+                print_info "Detected SUSE-based system: $ID $VERSION_ID"
+                ;;
+            arch|manjaro|garuda|endeavouros|arcolinux|artix)
+                OS="arch"
+                print_info "Detected Arch-based system: $ID"
+                ;;
+            *)
+                # Fallback using ID_LIKE
+                case "$ID_LIKE" in
+                    *arch*)
+                        OS="arch"
+                        print_info "Detected Arch-based system: $ID (based on $ID_LIKE)"
+                        ;;
+                    *rhel*|*fedora*)
+                        OS="rhel"
+                        print_info "Detected RHEL-based system: $ID (based on $ID_LIKE)"
+                        ;;
+                    *debian*)
+                        OS="debian"
+                        print_info "Detected Debian-based system: $ID (based on $ID_LIKE)"
+                        ;;
+                    *)
+                        print_error "Unsupported Linux distribution: $ID"
+                        exit 1
+                        ;;
+                esac
+                ;;
+        esac
+    else
+        print_error "Cannot detect operating system"
+        exit 1
+    fi
 }
+
 
 # Detect architecture
 detect_arch() {

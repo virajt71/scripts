@@ -34,20 +34,52 @@ check_root() {
 
 # Detect OS
 detect_os() {
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        OS=$ID
-        OS_VERSION=$VERSION_ID
-    elif [ "$(uname)" = "Darwin" ]; then
+    if [ "$(uname)" = "Darwin" ]; then
         OS="macos"
-        OS_VERSION=$(sw_vers -productVersion)
+        print_message "Detected macOS"
+    elif [ -f /etc/os-release ]; then
+        . /etc/os-release
+        case "$ID" in
+            ubuntu)
+                OS="ubuntu"
+                print_message "Detected Ubuntu $VERSION_ID"
+                ;;
+            debian)
+                OS="debian"
+                print_message "Detected Debian $VERSION_ID"
+                ;;
+            rhel|centos|fedora|rocky|almalinux)
+                OS="rhel"
+                print_message "Detected RHEL-based system: $ID $VERSION_ID"
+                ;;
+            opensuse*|sles)
+                OS="suse"
+                print_message "Detected SUSE-based system: $ID $VERSION_ID"
+                ;;
+            arch|manjaro|garuda|endeavouros|arcolinux|artix)
+                OS="arch"
+                print_message "Detected Arch-based system: $ID"
+                ;;
+            *)
+                # Check ID_LIKE for derivative distributions
+                case "$ID_LIKE" in
+                    *arch*)
+                        OS="arch"
+                        print_message "Detected Arch-based system: $ID (based on $ID_LIKE)"
+                        ;;
+                    *)
+                        print_error "Unsupported Linux distribution: $ID"
+                        exit 1
+                        ;;
+                esac
+                ;;
+        esac
     else
-        print_error "Cannot detect OS"
+        print_error "Cannot detect operating system"
         exit 1
     fi
-    
-    print_message "Detected OS: $OS $OS_VERSION"
 }
+
 
 # Install Java 21 based on OS
 install_java21() {
