@@ -26,10 +26,10 @@ print_warning() {
 
 # Function to detect OS
 detect_os() {
-    if [[ "$OSTYPE" == "darwin"* ]]; then
+    if [ "$(uname)" = "Darwin" ]; then
         OS="macos"
         print_message "Detected macOS"
-    elif [[ -f /etc/os-release ]]; then
+    elif [ -f /etc/os-release ]; then
         . /etc/os-release
         case "$ID" in
             ubuntu)
@@ -48,13 +48,22 @@ detect_os() {
                 OS="suse"
                 print_message "Detected SUSE-based system: $ID $VERSION_ID"
                 ;;
-            arch|manjaro)
+            arch|manjaro|garuda|endeavouros|arcolinux|artix)
                 OS="arch"
                 print_message "Detected Arch-based system: $ID"
                 ;;
             *)
-                print_error "Unsupported Linux distribution: $ID"
-                exit 1
+                # Check ID_LIKE for derivative distributions
+                case "$ID_LIKE" in
+                    *arch*)
+                        OS="arch"
+                        print_message "Detected Arch-based system: $ID (based on $ID_LIKE)"
+                        ;;
+                    *)
+                        print_error "Unsupported Linux distribution: $ID"
+                        exit 1
+                        ;;
+                esac
                 ;;
         esac
     else
@@ -65,12 +74,12 @@ detect_os() {
 
 # Function to check if Docker is already installed
 check_docker() {
-    if command -v docker &> /dev/null; then
+    if command -v docker > /dev/null 2>&1; then
         DOCKER_VERSION=$(docker --version)
         print_warning "Docker is already installed: $DOCKER_VERSION"
-        read -p "Do you want to reinstall? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        printf "Do you want to reinstall? (y/N): "
+        read -r REPLY
+        if [ "$REPLY" != "y" ] && [ "$REPLY" != "Y" ]; then
             print_message "Installation cancelled"
             exit 0
         fi
@@ -98,7 +107,7 @@ install_docker_ubuntu_debian() {
     
     # Set up the repository
     echo \
-      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$OS $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$OS $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
     
     # Install Docker Engine
     sudo apt-get update
@@ -148,17 +157,26 @@ install_docker_suse() {
 
 # Install Docker on Arch Linux
 install_docker_arch() {
-    print_message "Installing Docker on Arch Linux..."
+    print_message "Installing Docker on Arch-based system using pacman..."
     
     # Update package database
+    print_message "Updating package database..."
     sudo pacman -Sy
     
-    # Install Docker
+    # Install Docker and Docker Compose
+    print_message "Installing docker and docker-compose packages..."
     sudo pacman -S --noconfirm docker docker-compose
     
-    # Start Docker service
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    # Start and enable Docker service
+    print_message "Starting Docker service..."
+    sudo systemctl start docker.service
+    sudo systemctl enable docker.service
+    
+    print_message "Starting containerd service..."
+    sudo systemctl start containerd.service
+    sudo systemctl enable containerd.service
+    
+    print_message "Docker installed successfully on Arch Linux"
 }
 
 # Install Docker on macOS
@@ -166,7 +184,7 @@ install_docker_macos() {
     print_message "Installing Docker Desktop on macOS..."
     
     # Check if Homebrew is installed
-    if ! command -v brew &> /dev/null; then
+    if ! command -v brew > /dev/null 2>&1; then
         print_error "Homebrew is not installed. Please install Homebrew first:"
         print_error "Visit https://brew.sh/"
         exit 1
@@ -182,17 +200,23 @@ install_docker_macos() {
 
 # Install Docker Compose (standalone if not included with Docker)
 install_docker_compose() {
+    # Skip for Arch-based systems as it's already installed via pacman
+    if [ "$OS" = "arch" ]; then
+        print_message "Docker Compose already installed via pacman package"
+        return 0
+    fi
+    
     print_message "Checking Docker Compose installation..."
     
     # Check if docker compose plugin is available
-    if docker compose version &> /dev/null 2>&1; then
+    if docker compose version > /dev/null 2>&1; then
         COMPOSE_VERSION=$(docker compose version)
         print_message "Docker Compose plugin already installed: $COMPOSE_VERSION"
         return 0
     fi
     
     # Check if standalone docker-compose is available
-    if command -v docker-compose &> /dev/null; then
+    if command -v docker-compose > /dev/null 2>&1; then
         COMPOSE_VERSION=$(docker-compose --version)
         print_message "Docker Compose (standalone) already installed: $COMPOSE_VERSION"
         return 0
@@ -219,7 +243,7 @@ install_docker_compose() {
     sudo ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose 2>/dev/null || true
     
     # Verify installation
-    if command -v docker-compose &> /dev/null; then
+    if command -v docker-compose > /dev/null 2>&1; then
         print_message "Docker Compose installed successfully: $(docker-compose --version)"
     else
         print_error "Docker Compose installation failed"
@@ -229,7 +253,7 @@ install_docker_compose() {
 
 # Add current user to docker group and set permissions (Linux only)
 configure_docker_permissions() {
-    if [[ "$OS" != "macos" ]]; then
+    if [ "$OS" != "macos" ]; then
         print_message "Configuring Docker permissions and services..."
         
         # Create docker group if it doesn't exist
@@ -242,7 +266,7 @@ configure_docker_permissions() {
         
         # Add current user to docker group
         print_message "Adding user '$USER' to docker group..."
-        sudo usermod -aG docker $USER
+        sudo usermod -aG docker "$USER"
         
         # Set permissions on docker socket
         if [ -e /var/run/docker.sock ]; then
@@ -284,26 +308,26 @@ END
 verify_installation() {
     print_message "Verifying Docker installation..."
     
-    if [[ "$OS" == "macos" ]]; then
+    if [ "$OS" = "macos" ]; then
         print_warning "Please start Docker Desktop and then run: docker --version"
         print_warning "Docker Compose will be available through Docker Desktop"
     else
         # Try to run docker version
-        if sudo docker --version &> /dev/null; then
+        if sudo docker --version > /dev/null 2>&1; then
             sudo docker --version
             print_message "Docker installed successfully!"
             
             # Check Docker Compose
-            if docker compose version &> /dev/null 2>&1; then
+            if docker compose version > /dev/null 2>&1; then
                 docker compose version
                 print_message "Docker Compose (plugin) is available"
-            elif command -v docker-compose &> /dev/null; then
+            elif command -v docker-compose > /dev/null 2>&1; then
                 docker-compose --version
                 print_message "Docker Compose (standalone) is available"
             else
                 print_warning "Docker Compose may not be properly installed"
             fi
-
+            
         else
             print_error "Docker installation verification failed"
             exit 1
@@ -360,7 +384,7 @@ main() {
     print_message "Installation complete!"
     print_message "Docker and Docker Compose are now ready to use!"
     
-    if [[ "$OS" != "macos" ]]; then
+    if [ "$OS" != "macos" ]; then
         echo
         print_message "Docker permissions and services configured:"
         print_message "  ✓ Docker group created/verified"
